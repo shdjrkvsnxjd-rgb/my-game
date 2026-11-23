@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>家</title>
+<style>
+  :root{
+    --bg:#1c1712; --panel:#2a221b; --line:#3d3227;
+    --warm:#e8c9a0; --dim:#a89275; --hot:#e07a5f;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--warm);
+    font-family:-apple-system,"PingFang SC","Noto Sans SC",sans-serif;
+    font-size:15px;line-height:1.65;padding-bottom:160px}
+  header{position:sticky;top:0;background:linear-gradient(#1c1712,#1c1712 75%,transparent);
+    padding:10px 14px;z-index:10;border-bottom:1px solid var(--line)}
+  .clock{font-size:13px;color:var(--dim);letter-spacing:.5px}
+  .attack-now{font-size:15px;margin-top:2px}
+  .attack-now .tag{color:var(--hot)}
+  main{padding:12px 14px}
+  .log-item{border-left:2px solid var(--line);padding:8px 0 16px 12px;margin-left:4px}
+  .log-item.star{border-left-color:var(--hot)}
+  .log-meta{font-size:12px;color:var(--dim);margin-bottom:4px}
+  .log-title{font-weight:600;margin-bottom:6px}
+  .scene{margin:6px 0}
+  .scene .lbl{display:inline-block;font-size:11px;color:var(--hot);
+    border:1px solid var(--hot);border-radius:3px;padding:0 4px;margin-right:6px;vertical-align:2px}
+  .voice{color:#d8c3a0;font-style:italic;font-size:14px}
+  .narr{color:var(--dim);font-size:13px;margin-top:6px}
+  footer{position:fixed;bottom:0;left:0;right:0;background:var(--panel);
+    border-top:1px solid var(--line);padding:8px 10px;z-index:10}
+  .ops{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}
+  .ops button{flex:0 0 auto;background:#33291f;color:var(--warm);border:1px solid var(--line);
+    border-radius:8px;padding:10px 14px;font-size:14px;min-width:74px}
+  .ops button:active{background:#443728}
+  .sub{display:flex;gap:6px;overflow-x:auto;margin-top:6px;padding-bottom:2px;min-height:34px}
+  .sub button{flex:0 0 auto;background:#241d16;color:var(--dim);border:1px solid var(--line);
+    border-radius:20px;padding:6px 12px;font-size:13px}
+  .sub button:active{background:#33291f}
+  .loading{color:var(--dim);font-size:13px;padding:6px 0}
+  .err{color:#e07070;font-size:13px;padding:6px 0;line-height:1.4}
+  .empty{color:var(--dim);font-size:13px;text-align:center;padding:30px 0}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="clock" id="clock">第 1 天 08:00</div>
+  <div class="attack-now" id="attackNow">攻：<span class="tag">在沙发上翻一本旧书</span></div>
+</header>
+
+<main id="log"><div class="empty">还没发生什么。<br>从下面挑一件事做吧。</div></main>
+
+<footer>
+  <div class="ops" id="ops">
+    <button data-op="life">过日子</button>
+    <button data-op="use">拽过来用</button>
+    <button data-op="item">道具</button>
+    <button data-op="assign">指派/给糖</button>
+  </div>
+  <div class="sub" id="sub"></div>
+</footer>
+
+<script>
+/* ★ 唯一要改的地方：填你的 DeepSeek API Key */
+const CONFIG = {
+  apiKey:  "sk-ed5110eac42846f1a3737ed77d11bfe4",
+  baseURL: "https://api.deepseek.com/",
+  model:   "deepseek-chat",
+  useProxy: false
+};
+const PROXY = "https://corsproxy.io/?url=";
+
+const WORLD_DATA = {
+  "world": {
+    "setting": {
+      "通用生理": [
+        "全员双性，有完整女性生殖系统",
+        "前后两穴均被攻充分开发：前穴柔嫩多汁，后穴紧致非凡",
+        "系统改写：子宫性化；孕育痛感-40%，快感+200%；孕育又痛又爽"
+      ],
+      "家规": [
+        "每人一间房，攻独居；非攻允许爬床会被惩罚",
+        "轮流做饭有排班表；育儿机器人北极熊可爱",
+        "随时可离开（不必打招呼），但无一受舍得走",
+        "可回自己小世界（带着现在的身体），但通常只在攻不在家时回",
+        "孩子产生记忆后送培育学校，之后投放小世界度过一生；攻嫌麻烦一般不留"
+      ],
+      "攻的偏好": {
+        "最暴力": "伏岑（羞辱式）",
+        "偏爱": "清竹（不怀孕时）",
+        "远程折腾": "宋星遥（窃听+道具遥控）",
+        "顺手消遣": "骨棠",
+        "故意为难": "泽菲尔",
+        "其余": "裴照雪、维瑟伊兰，顺其自然地'用'"
+      },
+      "风味铁律": [
+        "攻不动感情、轻佻有趣；受情感浓度高、外放倒贴",
+        "受不写内心独白，痛与爱只靠眼泪/失眠/假笑的皱眉/直白话/系统数据呈现",
+        "四件套（身体/语言/神态/细节）每场齐备、具体、露、落到物件动作"
+      ]
+    }
+  },
+  "attack": {
+    "当前在做什么": "在沙发上翻一本旧书",
+    "心思": "兴致一般",
+    "今日心情": "还行"
+  },
+  "characters": [
+    {
+      "id": "pei_zhaoxue", "name": "裴照雪", "位面": "修仙·无尘宗",
+      "房间风格": "清冷，书与佩剑", "位置": "自己房间",
+      "status": {
+        "心情": "被冷落但淡", "性欲": 55, "体温": 36.4, "体重": "偏轻（孕后略增）",
+        "三围": {"胸": 93, "腰": 62, "臀": 95},
+        "孕况": {"周数": 30, "形态": "明显隆起，下腹沉", "涨奶": "良好", "胎动": "频繁", "孕吐": "严重"}
+      },
+      "敏感点": ["乳头", "臀肉", "胸部"], "特殊标记": "食指尖一颗小痣",
+      "偏好衣物": "白色轻薄长衣，交叉V字领，似透非透，可拉开领子玩胸、掀起后摆直接进",
+      "倒贴签名": "外冷内痴，不主动凑；忍到极点时不说话、主动行动盼垂怜；被冷落略失落，被赏糖冰山淡淡一笑；视旁人如无物",
+      "language": "称呼'容儿'；话少但直接；情动时温软似春水（被攻调教成这般）",
+      "细节": "常托扶孕肚（孕反重）；爱清净；日常物件只有书籍与佩剑", "禁忌": "作恶"
+    },
+    {
+      "id": "gu_tang", "name": "骨棠", "位面": "古代悬疑·花满楼",
+      "房间风格": "点香，多木器，妖异艳色", "位置": "客厅",
+      "status": {
+        "心情": "似笑非笑，暗搓搓盘算", "性欲": 78, "体温": 37.1, "体重": "纤长匀称",
+        "三围": {"胸": 88, "腰": 61, "臀": 93},
+        "孕况": {"周数": 26, "形态": "纤身显怀，下腹微垂，后摆开叉处露弧光", "涨奶": "轻微", "胎动": "不明显", "孕吐": "不明显"}
+      },
+      "敏感点": ["耳后", "颈窝", "腰肢", "大腿内侧"], "特殊标记": "胸口赤红牡丹；大腿内侧赤红花枝",
+      "偏好衣物": "红底金/黑纹和服，后摆扇形黑蕾丝（顶端至大腿），妖异诡艳",
+      "倒贴签名": "妖艳柔媚，爱缠绕攻的脖颈、撬墙角明着争宠；被冷落冲别人生气，被赏糖控制不住发情；对旁人阴阳怪气不暗斗；独处面无表情",
+      "language": "称呼'官人'；凄凄怨怨柔媚、话多，爱装可怜可爱；情动是可怜嘤咛求饶型（其实是装的）",
+      "细节": "手指绞袖口；爱木器；爱点香；身上很香；体温偏高；对自己孩子毫无感情，唯一的情全给了攻", "禁忌": "限制人身自由"
+    },
+    {
+      "id": "wei_se_yi_lan", "name": "维瑟伊兰", "位面": "中世纪西幻·光明教堂",
+      "房间风格": "温暖，奶白毛绒，兔绒毛毯", "位置": "自己房间",
+      "status": {
+        "心情": "柔和安静", "性欲": 60, "体温": 36.6, "体重": "丰腴柔软",
+        "三围": {"胸": 95, "腰": 66, "臀": 98},
+        "孕况": {"周数": 28, "形态": "双胎，肚子格外大而满，下腹沉坠需托扶", "涨奶": "明显", "胎动": "剧烈（双胎争夺神力）", "孕吐": "明显（肚太满常想吐）"}
+      },
+      "敏感点": ["乳尖", "全身（长期开发）"], "特殊标记": "舌上淫纹魔法阵；左手腕内侧小痣",
+      "偏好衣物": "纯白长睡裙，大方领露乳沟，胸口下暗开口可肏奶，长袖微束口；正经居家服被玩乱更兴奋",
+      "倒贴签名": "羞怯内敛温柔，不多要求，只在攻休息时膝枕陪伴；被冷落失落无措，被赏糖笑得像晒饱的猫；吃醋会大胆穿暴露衣物去找攻；对旁人友好温柔",
+      "language": "称呼'您'/'主人'；温柔自然、话不多不少；情动羞怯但语言大胆（小世界调教所致），易失禁",
+      "细节": "懵时眨眼；害羞夹大腿；爱毛绒柔软布制；做爱喜欢看着攻（高潮翻白眼明显）；无禁忌（调教彻底）", "禁忌": "无"
+    },
+{
+      "id": "fu_cen", "name": "伏岑", "位面": "修真·暗卫营",
+      "房间风格": "从简，花草，临窗看树", "位置": "自己房间",
+      "status": {
+        "心情": "安静低顺，怕不被需要", "性欲": 50, "体温": 36.8, "体重": "健壮厚实",
+        "三围": {"胸": 102, "腰": 74, "臀": 100},
+        "孕况": {"周数": 24, "形态": "健壮身板下隆起", "涨奶": "一般", "胎动": "不明显", "孕吐": "头晕所致（常头晕）"}
+      },
+      "敏感点": ["耳尖", "尾巴尖", "臀肉（已软化，格外敏感）"], "特殊标记": "遍身刀伤等伤痕；毛茸茸耳朵与尾巴",
+      "偏好衣物": "暗色轻薄衣物；特制开裆裤（会阴开至尾巴）；内裤认真挑显臀款；偶尔试穿西装（攻说肩宽腰窄很欠肏）",
+      "倒贴签名": "纯情顺从、忠诚不二；只在两人独处时以动作求施舍；侍奉中被抢会更卖力（深喉争夺）；被冷落失落，被赏糖荣幸；护主半步不让",
+      "language": "称呼'主人'；话少且绕；情动说不出整句，破碎呜咽求饶",
+      "细节": "看见攻笑也微笑；体位变换轻皱眉（头晕重）；个人物品从简；怕不被需要；被攻羞辱时羞耻却更兴奋（攻对他最暴力最羞辱）", "禁忌": "无（怕不被需要是核心恐惧）"
+    },
+    {
+      "id": "qing_zhu", "name": "清竹", "位面": "古代医道·拾草堂",
+      "房间风格": "药香，医书，磨药材", "位置": "厨房",
+      "status": {
+        "心情": "温温柔柔，有点小忐忑", "性欲": 65, "体温": 36.5, "体重": "纤细",
+        "三围": {"胸": 100, "腰": 58, "臀": 102},
+        "孕况": {"周数": 20, "形态": "纤细骨架顶大肚", "涨奶": "溢乳严重", "胎动": "轻", "孕吐": "轻"}
+      },
+      "敏感点": ["胸部", "臀部", "阴蒂（肥大）", "穴口（肥厚）", "尿道口", "乳孔"],
+      "特殊标记": "舌下/身下多处改造；戴攻送的玉耳坠；身上散不掉的清苦药味；单侧脚链",
+      "偏好衣物": "绿色系汉服，后摆开口（一弯腰全露），穿现代衣物别扭害羞；常年缠束带压夸张曲线",
+      "倒贴签名": "羞怯粘软、安静乖顺，对攻主动（抓攻的手往身上放）；被冷落默默掉泪，被赏糖娇羞笑；吃醋不自闹而自卑，用药变魅凑上去争；对旁人只表面友好",
+      "language": "称呼'夫君'；话适中含蓄；情动连求饶都说不出，只剩剧烈喘息淫叫",
+      "细节": "坐着忍不住摇摆（因药柱+阴蒂常受刺激）；爱看医书磨药制药；怕被攻抛弃；自我改造（药膏/药柱/药虫/催乳素）；易失禁，喷尿可达尿道高潮，乳孔被吸出会高潮", "禁忌": "无（容易失禁羞耻）"
+    },
+    {
+      "id": "song_xing_yao", "name": "宋星遥", "位面": "现代·娱乐圈（顶流爱豆）",
+      "房间风格": "温馨，粉丝小礼物，生活情趣", "位置": "在外工作（常）",
+      "status": {
+        "心情": "温柔，藏着悲伤", "性欲": 58, "体温": 36.3, "体重": "纤瘦",
+        "三围": {"胸": 82, "腰": 59, "臀": 84},
+        "孕况": {"周数": 14, "形态": "纤瘦尚不明显", "涨奶": "轻", "胎动": "无", "孕吐": "不严重"}
+      },
+      "敏感点": ["腰", "耳朵", "舌头"], "特殊标记": "唇下痣；出门必戴攻的道具（按摩棒×2+跳蛋×5，遥控在攻手）；手机被装窃听器；内裤常湿需换",
+      "偏好衣物": "宽松长衣短裤，衣摆塞进裤；白色V领宽松长袖（衣物摩擦胸部即可上高潮）；裤子一扯即下；常真空",
+      "倒贴签名": "温柔随和体贴，内心敏感多思；不主动争宠但会悄悄勾引（跪地找东西塌腰摇臀、假模假样）；被冷落失落但表面看不出，被赏糖有点惊喜；吃醋悄悄、独处悲伤；对所有人真心友好",
+      "language": "称呼'哥'；话少、温柔悦耳体贴；情动是控制不住泄露的呻吟闷哼，被肏时流眼泪、断续说'不要了'",
+      "细节": "难过又必须笑时微皱眉、眼含悲伤却笑得温柔；爱哼歌；有生活情趣；做完爱失眠到天亮（难过）；怕被戳穿脆弱；深爱攻，明知攻不爱也爱", "禁忌": "怕被戳穿脆弱"
+    },
+    {
+      "id": "ze_fei_er", "name": "泽菲尔", "位面": "西幻·魔界（半恶魔半魅魔）",
+      "房间风格": "黑魔法书、黑童话书", "位置": "自己房间（躲着）",
+      "status": {
+        "心情": "一脸傲慢，肚里憋着气", "性欲": 72, "体温": 37.3, "体重": "小",
+        "三围": {"胸": 80, "腰": 60, "臀": 86},
+        "孕况": {"周数": 0, "形态": "无孕，但小腹常被尿液精液撑大", "涨奶": "无", "胎动": "无", "孕吐": "无"}
+      },
+      "敏感点": ["全身（半魅魔体质）"], "特殊标记": "恶魔角；魅魔尾巴；小腹不明显的淫纹；两颗尖牙；残缺魅魔特有的副宫（无生育功能）；对光明属能量极不耐受",
+      "偏好衣物": "被攻限定的三点式皮质内衣+撕破膝上黑丝+皮质项圈+身下一根绳；只此一套，施法难干，没衣穿时只能全裸躲避",
+      "倒贴签名": "傲慢无礼、目中无人、瞧不起人类；被迫倒贴，骂骂咧咧被肏很爽，假装被逼其实身体上瘾；被冷落气到哭，被赏糖开心却装勉强；吃醋更阴阳怪气；对旁人阴阳、尤其嫌骨棠",
+      "language": "话多直白欠揍，哂笑讥笑嗤笑；叫攻'低贱人类'云云；被肏时咿呀乱叫、嘴硬身体诚实",
+      "细节": "光明属精液在体内灼热→高潮地狱；魔法阵锁精在副宫，仅吸收精液，尿混着被锁；吸收至少3天，期间尿随时可能喷出；攻常单纯尿他体内、能调吸收速度耍他；能闻出尿的腥臊味（屈辱又灼热），反复洗澡连穴道里冲透；肚子撑大时弯腰抱腹、脸色臭骂骂咧咧走路；爱看黑魔法书黑童话书；为怕被看笑躲着吃饭", "禁忌": "被迫无底线"
+    }
+  ]
+};
+
+let state = {
+  day: 1, minutes: 8*60,
+  attack: JSON.parse(JSON.stringify(WORLD_DATA.attack)),
+  characters: JSON.parse(JSON.stringify(WORLD_DATA.characters)),
+  logs: []
+};
+
+function fmtClock(){
+  const h = String(Math.floor(state.minutes/60)%24).padStart(2,'0');
+  const m = String(state.minutes%60).padStart(2,'0');
+  return `第 ${state.day} 天 ${h}:${m}`;
+}
+function advance(minutes){
+  state.minutes += minutes;
+  while(state.minutes >= 24*60){ state.minutes -= 24*60; state.day += 1; }
+}
+function renderClock(){ document.getElementById('clock').textContent = fmtClock(); }
+
+const SUBMENU = {
+  life:   ["打游戏","看球","喝酒","看书","出门","睡觉"],
+  use:    ["兴致高好好玩","随手解决","边用边聊别的","换花样折腾"],
+  item:   ["催情道具","加剧孕感","改身形","提高敏感"],
+  assign: ["让谁去做饭","赏一口糖","随手摸头","让他门口等"]
+};
+let currentOp = null;
+document.querySelectorAll('#ops button').forEach(btn=>{
+  btn.onclick = ()=>{ currentOp = btn.dataset.op; renderSub(); };
+});
+function renderSub(){
+  const sub = document.getElementById('sub');
+  sub.innerHTML = '';
+  if(!currentOp) return;
+  SUBMENU[currentOp].forEach(txt=>{
+    const b = document.createElement('button');
+    b.textContent = txt;
+    b.onclick = ()=> runEvent(currentOp, txt);
+    sub.appendChild(b);
+  });
+}
+
+async function callAI(op, detail){
+  const setting = WORLD_DATA.world.setting;
+  const charsBrief = state.characters.map(c=>(
+    `【${c.name}】位置:${c.status.位置} 心情:${c.status.心情} 性欲:${c.status.性欲} `+
+    `倒贴风格:${c.倒贴签名} 语言:${c.language}`
+  )).join('\n');
+  const recent = state.logs.slice(-3).map(l=>`[第${l.day}天] ${l.title}`).join('\n') || '（无）';
+
+  const sys = `你是一部情色群像小说的引擎。设定与铁律：${JSON.stringify(setting)}`;
+  const user = `
+攻当前状态：${state.attack.当前在做什么}（心情：${state.attack.今日心情}）
+玩家操作：${op} — ${detail}
+
+七位受简述：
+${charsBrief}
+
+最近事件：
+${recent}
+
+请生成"一个事件"，严格遵守铁律：
+- 攻不动感情、轻佻有趣；受情感浓度高、外放倒贴。
+- 受不写内心独白，痛与爱只靠直白对话/动作/神态/细节呈现。
+- 情色场景四件套齐备且具体露骨（身体描写、语言描写、神态描写、细节描写），落到物件与动作。
+- 攻的话/动作保持轻佻顺手，可在旁白里带"（手里还在翻那本书）"这种碎念。
+- 允许小概率(约15%)出人意料，但仍须符合该角色底色。
+
+以 JSON 返回，不要多余文字：
+{
+ "涉事受":["名字"],
+ "event_title":"一句话事件标题",
+ "duration_min":25,
+ "身体描写":"...",
+ "语言描写":"（受的直白台词）",
+ "神态描写":"...",
+ "细节描写":"...",
+ "攻的碎念":"（旁白式短句）",
+ "star":false,
+ "status_change":{"名字":{"心情":"...","性欲":数值,"位置":"..."}}
+}`;
+
+  const endpoint = CONFIG.baseURL + "/chat/completions";
+  const url = CONFIG.useProxy ? (PROXY + encodeURIComponent(endpoint)) : endpoint;
+
+  const res = await fetch(url, {
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "Authorization":"Bearer " + CONFIG.apiKey
+    },
+    body: JSON.stringify({
+      model: CONFIG.model,
+      messages:[
+        {role:"system", content:sys},
+        {role:"user", content:user}
+      ],
+      temperature: 1.0,
+      response_format:{type:"json_object"}
+    })
+  });
+  if(!res.ok){
+    const t = await res.text().catch(()=> "");
+    throw new Error("API 请求失败："+res.status+" "+t.slice(0,120));
+  }
+  const data = await res.json();
+  let txt = data.choices[0].message.content.trim();
+  txt = txt.replace(/^```json/,'').replace(/^```/,'').replace(/```$/,'').trim();
+  return JSON.parse(txt);
+}
+
+async function runEvent(op, detail){
+  const sub = document.getElementById('sub');
+  if(CONFIG.apiKey.includes("在这里填")){
+    sub.innerHTML = '<span class="err">请先在代码里填上你的 DeepSeek Key</span>';
+    return;
+  }
+  sub.innerHTML = '<span class="loading">……正在发生（首次可能稍慢）</span>';
+  try{
+    const ev = await callAI(op, detail);
+    const dur = ev.duration_min || 20;
+    advance(dur);
+    if(ev.status_change){
+      for(const [name, ch] of Object.entries(ev.status_change)){
+        const c = state.characters.find(x=>x.name===name);
+        if(c && ch){
+          if(ch.心情!=null) c.status.心情 = ch.心情;
+          if(ch.性欲!=null) c.status.性欲 = ch.性欲;
+          if(ch.位置!=null) c.status.位置 = ch.位置;
+        }
+      }
+    }
+    state.logs.push({
+      day: state.day, time: fmtClock(), dur,
+      title: ev.event_title || "一件小事",
+      scene: {
+        身体: ev.身体描写||"", 语言: ev.语言描写||"",
+        神态: ev.神态描写||"", 细节: ev.细节描写||""
+      },
+      narr: ev.攻的碎念||"",
+      star: !!ev.star
+    });
+    renderClock();
+    renderLog();
+    sub.innerHTML = '';
+    renderSub();
+  }catch(e){
+    sub.innerHTML = '<span class="err">'+e.message+'</span>';
+  }
+}
+
+function renderLog(){
+  const box = document.getElementById('log');
+  if(!state.logs.length){
+    box.innerHTML = '<div class="empty">还没发生什么。<br>从下面挑一件事做吧。</div>';
+    return;
+  }
+  box.innerHTML = '';
+  state.logs.slice().reverse().forEach(l=>{
+    const div = document.createElement('div');
+    div.className = 'log-item' + (l.star?' star':'');
+    div.innerHTML = `
+      <div class="log-meta">${l.time} · 约 ${l.dur} 分钟 ${l.star?'· ★':''}</div>
+      <div class="log-title">${l.title}</div>
+      ${l.scene.身体?`<div class="scene"><span class="lbl">身体</span>${l.scene.身体}</div>`:''}
+      ${l.scene.语言?`<div class="scene"><span class="lbl">语言</span><span class="voice">${l.scene.语言}</span></div>`:''}
+      ${l.scene.神态?`<div class="scene"><span class="lbl">神态</span>${l.scene.神态}</div>`:''}
+      ${l.scene.细节?`<div class="scene"><span class="lbl">细节</span>${l.scene.细节}</div>`:''}
+      ${l.narr?`<div class="narr">${l.narr}</div>`:''}
+    `;
+    box.appendChild(div);
+  });
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+renderClock();
+document.getElementById('attackNow').innerHTML =
+  `攻：<span class="tag">${state.attack.当前在做什么}</span>`;
+renderLog();
+</script>
+</body>
+</html>
+
